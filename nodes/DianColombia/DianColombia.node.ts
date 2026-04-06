@@ -173,7 +173,9 @@ function convertirPesosUvt(pesos: number, valorUvt: number): IDataObject {
 async function emitirFactura(
 	that: IExecuteFunctions,
 	provider: string,
+	apiUser: string,
 	apiKey: string,
+	operation: string,
 	tipoDocumento: string,
 	datos: IDataObject,
 ): Promise<IDataObject> {
@@ -201,20 +203,59 @@ async function emitirFactura(
 	}
 	
 	if (provider === 'siigo') {
-		const response = await that.helpers.httpRequest({
+		const auth = await that.helpers.httpRequest({
 			method: 'POST',
-			url: 'https://api.siigo.com/v1/invoices',
+			url: 'https://api.siigo.com/auth',
 			headers: {
-				'Authorization': apiKey,
 				'Content-Type': 'application/json',
+				'Partner-Id': 'n8nApp'
 			},
 			body: {
-				document: { id: tipoDocumento === 'FV' ? 1 : tipoDocumento === 'NC' ? 2 : 3 },
-				customer: datos.cliente,
-				items: datos.items,
+				username: apiUser,
+				password: apiKey,
 			},
 			json: true,
 		});
+
+		let response;
+
+		if (operation === 'factura_compra') {
+			response = await that.helpers.httpRequest({
+				method: 'POST',
+				url: 'https://api.siigo.com/v1/purchases',
+				headers: {
+					'Authorization': auth.access_token,
+					'Content-Type': 'application/json',
+				},
+				body: {
+					document: 1,
+					date: new Date().toISOString().split('T')[0],
+					supplier: datos.cliente,
+					items: datos.items,
+					tax_included: datos.taxIncluded,
+					payments: {
+						value: datos.total
+					}
+				},
+				json: true,
+			});
+		} else {
+			response = await that.helpers.httpRequest({
+				method: 'POST',
+				url: 'https://api.siigo.com/v1/invoices',
+				headers: {
+					'Authorization': auth.access_token,
+					'Content-Type': 'application/json',
+				},
+				body: {
+					document: { id: tipoDocumento === 'FV' ? 1 : tipoDocumento === 'NC' ? 2 : 3 },
+					customer: datos.cliente,
+					items: datos.items,
+				},
+				json: true,
+			});
+		}
+
 		return response as IDataObject;
 	}
 	
@@ -325,6 +366,7 @@ export class DianColombia implements INodeType {
 				displayOptions: { show: { resource: ['factura'] } },
 				options: [
 					{ name: 'Factura de Venta', value: 'factura_venta', description: 'FV', action: 'Emitir Factura' },
+					{ name: 'Factura de Compra', value: 'factura_compra', description: 'FC', action: 'Emitir Factura de Compra' },
 					{ name: 'Nota Crédito', value: 'nota_credito', description: 'NC', action: 'Emitir Nota Credito' },
 					{ name: 'Nota Débito', value: 'nota_debito', description: 'ND', action: 'Emitir Nota Debito' },
 				],
@@ -345,6 +387,71 @@ export class DianColombia implements INodeType {
 				default: '',
 				placeholder: 'Empresa S.A.S.',
 				displayOptions: { show: { resource: ['factura'] } },
+			},
+			{
+				displayName: 'Tax Included',
+				name: 'taxIncluded',
+				type: 'boolean',
+				default: true,
+				displayOptions: { show: { resource: ['factura'], operation: ['factura_compra'] } },
+			},
+			{
+				displayName: 'Items',
+				name: 'items',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,                    // ← hace que sea array
+					addButtonText: 'Agregar Item',
+				},
+				default: {},
+				displayOptions: { show: { resource: ['factura'], operation: ['factura_compra'] } },
+				options: [
+					{
+						displayName: 'Item',
+						name: 'item',
+						values: [
+							{
+								displayName: 'Type',
+								name: 'type',
+								type: 'options',
+								options: [
+									{ name: 'Product', value: 'Product' },
+									{ name: 'Service', value: 'Service' },
+								],
+								default: 'Product',
+							},
+							{
+								displayName: 'Code',
+								name: 'code',
+								type: 'string',
+								default: '',
+								placeholder: '456-c4g',
+							},
+							{
+								displayName: 'Description',
+								name: 'description',
+								type: 'string',
+								default: '',
+								placeholder: 'Producto spt',
+							},
+							{
+								displayName: 'Quantity',
+								name: 'quantity',
+								type: 'number',
+								typeOptions: { minValue: 1 },
+								default: 1,
+							},
+							{
+								displayName: 'Price',
+								name: 'price',
+								type: 'number',
+								typeOptions: { numberPrecision: 2 },
+								default: 0,
+								placeholder: '54224',
+							},
+						],
+					},
+				],
 			},
 			{
 				displayName: 'Subtotal',
@@ -423,21 +530,53 @@ export class DianColombia implements INodeType {
 					}
 					
 					const tipoDoc = operation === 'factura_venta' ? 'FV' : operation === 'nota_credito' ? 'NC' : 'ND';
+
+					const rawItems = this.getNodeParameter('items', i, {}) as {
+						item?: Array<{
+							type: string;
+							code: string;
+							description: string;
+							quantity: number;
+							price: number;
+						}>;
+					};
+
+					// El array real está dentro de la key 'item' (el name del values)
+					const items = rawItems.item ?? [];
+
+					// Mapearlo al formato que espera Siigo
+					const siigoItems = items.map(item => ({
+						Type: item.type,
+						Code: item.code,
+						Description: item.description,
+						Quantity: item.quantity,
+						Price: item.price,
+						Taxes: [
+							{
+								Id: 1,
+							}
+						]
+					}));
+
 					
 					const datos: IDataObject = {
 						cliente: {
-							nit: this.getNodeParameter('nitCliente', i) as string,
+							identification: this.getNodeParameter('nitCliente', i) as string,
 							razonSocial: this.getNodeParameter('razonSocial', i) as string,
 						},
 						subtotal: this.getNodeParameter('subtotal', i) as number,
 						iva: this.getNodeParameter('iva', i) as number,
 						total: this.getNodeParameter('total', i) as number,
+						taxIncluded: this.getNodeParameter('taxIncluded', i) as boolean,
+						items: siigoItems,
 					};
 					
 					result = await emitirFactura(
 						this,
 						credentials.provider as string,
+						credentials.siigoApiUser as string,
 						credentials.alegraApiKey as string || credentials.siigoApiKey as string,
+						operation as string,
 						tipoDoc,
 						datos,
 					);

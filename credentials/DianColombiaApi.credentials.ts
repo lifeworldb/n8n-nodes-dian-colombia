@@ -29,6 +29,14 @@ export class DianColombiaApi implements ICredentialType {
 			displayOptions: { show: { provider: ['alegra'] } },
 		},
 		{
+			displayName: 'API User Key Siigo',
+			name: 'siigoApiUser',
+			type: 'string',
+			typeOptions: { email: true },
+			default: '',
+			displayOptions: { show: { provider: ['siigo'] } },
+		},
+		{
 			displayName: 'API Key Siigo',
 			name: 'siigoApiKey',
 			type: 'string',

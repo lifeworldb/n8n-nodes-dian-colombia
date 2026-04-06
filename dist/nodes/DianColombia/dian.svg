@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60">
-  <rect width="60" height="60" rx="8" fill="#FCD116"/>
-  <text x="30" y="24" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#003893" text-anchor="middle">DIAN</text>
-  <text x="30" y="40" font-family="Arial, sans-serif" font-size="6" fill="#003893" text-anchor="middle">COLOMBIA</text>
-  <rect x="10" y="48" width="40" height="6" fill="#FCD116"/>
-  <rect x="10" y="48" width="20" height="6" fill="#FCD116"/>
-  <rect x="10" y="51" width="40" height="2" fill="#003893"/>
-  <rect x="10" y="53" width="40" height="1" fill="#CE1126"/>
-</svg>
